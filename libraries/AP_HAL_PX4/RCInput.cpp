@@ -23,7 +23,7 @@ void PX4RCInput::init(void* unused)
 bool PX4RCInput::new_input() 
 {
     pthread_mutex_lock(&rcin_mutex);
-    bool valid = _rcin.timestamp_last_signal != _last_read || _override_valid;
+    bool valid = _rcin.timestamp_last_signal != _last_read || _rcin.timestamp_publication != _last_read || _override_valid;
     pthread_mutex_unlock(&rcin_mutex);
     return valid;
 }
@@ -103,11 +103,28 @@ void PX4RCInput::clear_overrides()
 void PX4RCInput::_timer_tick(void)
 {
 	perf_begin(_perf_rcin);
-	bool rc_updated = false;
-	if (orb_check(_rc_sub, &rc_updated) == 0 && rc_updated) {
-            pthread_mutex_lock(&rcin_mutex);
-            orb_copy(ORB_ID(input_rc), _rc_sub, &_rcin);
-            pthread_mutex_unlock(&rcin_mutex);
+
+	// check for status and channel values and update them consistently
+	bool rc_updated = orb_check(_rc_sub, &rc_updated) == 0 && rc_updated;
+	if (rc_updated) {
+		pthread_mutex_lock(&rcin_mutex);
+		orb_copy(ORB_ID(input_rc), _rc_sub, &_rcin);
+
+
+		// pull throttle channel low for easy and intuitive failsafe testing, preserve
+		// all other channel values, e.g. to lower retracts on failsafe
+		if (_rcin.rc_lost) {
+			// we've lost RC input, RC receiver failed or cable break
+			// force channel 3 low
+			_rcin.values[2] = 900;
+		}
+		else if (_rcin.rc_failsafe) {
+			// we got a valid RC signal, but it contains a failsafe flag (e.g. TX switched off or out of range)
+			// force channel 3 low
+			// slightly different value allows to map failsafe action only to rc_lost state
+			_rcin.values[2] = 910;
+		}
+		pthread_mutex_unlock(&rcin_mutex);
 	}
         // note, we rely on the vehicle code checking new_input() 
         // and a timeout for the last valid input to handle failsafe
