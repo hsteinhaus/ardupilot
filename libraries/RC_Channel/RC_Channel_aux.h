@@ -7,9 +7,14 @@
 #ifndef __RC_CHANNEL_AUX_H__
 #define __RC_CHANNEL_AUX_H__
 
+#include <AP_HAL.h>
 #include "RC_Channel.h"
 
+#if HAL_CPU_CLASS > HAL_CPU_CLASS_16
+#define RC_AUX_MAX_CHANNELS 12
+#else
 #define RC_AUX_MAX_CHANNELS 8
+#endif
 
 /// @class	RC_Channel_aux
 /// @brief	Object managing one aux. RC channel (CH5-8), with information about its function
@@ -66,7 +71,11 @@ public:
 
     AP_Int8         function;           ///< see Aux_servo_function_t enum
 
-    void            output_ch(unsigned char ch_nr);
+    // output one auxillary channel
+    void            output_ch(void);
+
+    // output all auxillary channels
+    static void     output_ch_all(void);
 
 	// set radio_out for a function channel
 	static void set_radio(Aux_servo_function_t function, int16_t value);

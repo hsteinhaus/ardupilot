@@ -107,14 +107,6 @@
  # define MAIN_LOOP_MICROS  10000
 #endif
 
-// 2nd GPS support
-#if HAL_CPU_CLASS >= HAL_CPU_CLASS_150
-#define GPS2_ENABLE 1
-#else
-#define GPS2_ENABLE 0
-#endif
-
-
 //////////////////////////////////////////////////////////////////////////////
 // FRAME_CONFIG
 //
@@ -269,22 +261,9 @@
 
 #if HIL_MODE != HIL_MODE_DISABLED       // we are in HIL mode
 
- # undef GPS_PROTOCOL
- # define GPS_PROTOCOL GPS_PROTOCOL_NONE
-
  #undef CONFIG_SONAR
  #define CONFIG_SONAR DISABLED
 
- #undef GPS2_ENABLE
- #define GPS2_ENABLE 0
-#endif
-
-
-//////////////////////////////////////////////////////////////////////////////
-// GPS_PROTOCOL
-//
-#ifndef GPS_PROTOCOL
- # define GPS_PROTOCOL           GPS_PROTOCOL_AUTO
 #endif
 
 
@@ -539,10 +518,6 @@
 
 #ifndef RTL_ALT
  # define RTL_ALT 				    1500    // default alt to return to home in cm, 0 = Maintain current altitude
-#endif
-
-#ifndef RTL_ALT_MAX
- # define RTL_ALT_MAX               8000    // Max height to return to home in cm (i.e 80m)
 #endif
 
 #ifndef RTL_LOITER_TIME

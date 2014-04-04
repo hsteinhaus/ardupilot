@@ -124,6 +124,19 @@ static void calc_throttle(float target_speed)
     } else {
         channel_throttle->servo_out = constrain_int16(throttle, g.throttle_min, g.throttle_max);
     }
+
+    if (!in_reverse && g.braking_percent != 0 && groundspeed_error < -g.speed_cruise/2) {
+        // the user has asked to use reverse throttle to brake. Apply
+        // it in proportion to the ground speed error, but only when
+        // our ground speed error is more than half our cruise speed
+        float brake_gain = constrain_float(-groundspeed_error / (float)g.speed_cruise, 0, 1);
+        int16_t braking_throttle = g.throttle_max * (g.braking_percent * 0.01f) * brake_gain;
+        channel_throttle->servo_out = constrain_int16(-braking_throttle, -g.throttle_max, -g.throttle_min);
+        
+        // temporarily set us in reverse to allow the PWM setting to
+        // go negative
+        set_reverse(true);
+    }
     
     if (use_pivot_steering()) {
         channel_throttle->servo_out = 0;
@@ -247,25 +260,7 @@ static void set_servos(void)
 	// ----------------------------------------
     channel_steer->output(); 
     channel_throttle->output();
-
-	// Route configurable aux. functions to their respective servos
-	g.rc_2.output_ch(CH_2);
-	g.rc_4.output_ch(CH_4);
-	g.rc_5.output_ch(CH_5);
-	g.rc_6.output_ch(CH_6);
-	g.rc_7.output_ch(CH_7);
-	g.rc_8.output_ch(CH_8);
- #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
-    g.rc_9.output_ch(CH_9);
- #endif
- #if CONFIG_HAL_BOARD == HAL_BOARD_APM2 || CONFIG_HAL_BOARD == HAL_BOARD_PX4
-    g.rc_10.output_ch(CH_10);
-    g.rc_11.output_ch(CH_11);
- #endif
- #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
-    g.rc_12.output_ch(CH_12);
- #endif
-
+    RC_Channel_aux::output_ch_all();
 #endif
 }
 
