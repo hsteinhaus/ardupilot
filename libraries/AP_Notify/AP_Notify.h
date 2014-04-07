@@ -40,6 +40,7 @@ public:
         uint16_t save_trim          : 1;    // 1 if gathering trim data
         uint16_t esc_calibration    : 1;    // 1 if calibrating escs
         uint16_t failsafe_radio     : 1;    // 1 if radio failsafe
+        uint16_t radio_lost         : 1;    // 1 if receiver failed to send frames
         uint16_t failsafe_battery   : 1;    // 1 if battery failsafe
         uint16_t failsafe_gps       : 1;    // 1 if gps failsafe
         uint16_t arming_failed      : 1;    // 1 if copter failed to arm after user input

@@ -60,6 +60,8 @@ bool ToneAlarm_PX4::play_tune(const uint8_t tune_number)
 // update - updates led according to timed_updated.  Should be called at 50Hz
 void ToneAlarm_PX4::update()
 {
+    static uint16_t radio_lost_counter = 0;
+
     // exit immediately if we haven't initialised successfully
     if (_tonealarm_fd == -1) {
         return;
@@ -110,6 +112,28 @@ void ToneAlarm_PX4::update()
             // gps glitch warning tune
             play_tune(TONE_GPS_WARNING_TUNE);
         }
+    }
+
+    // check radio failsafe
+    if (flags.failsafe_radio != AP_Notify::flags.failsafe_radio) {
+        flags.failsafe_radio = AP_Notify::flags.failsafe_radio;
+        if (flags.failsafe_radio) {
+            // notify negative tune
+            play_tune(TONE_NOTIFY_NEGATIVE_TUNE);
+        }
+       else {
+            // notify positive tune
+            play_tune(TONE_NOTIFY_POSITIVE_TUNE);
+       }
+    }
+
+    // check radio timeout
+    if (AP_Notify::flags.radio_lost && (radio_lost_counter++ % 400 ==0)) {
+        // error tune
+        play_tune(TONE_NOTIFY_NEUTRAL_TUNE);
+    }
+    if (radio_lost_counter && !AP_Notify::flags.radio_lost) {
+        radio_lost_counter = 0;
     }
 
     // check parachute release

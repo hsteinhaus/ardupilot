@@ -1,4 +1,5 @@
 #include <AP_HAL.h>
+#include <AP_Notify.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
 #include "RCInput.h"
@@ -125,6 +126,10 @@ void PX4RCInput::_timer_tick(void)
 			_rcin.values[2] = 910;
 		}
 		pthread_mutex_unlock(&rcin_mutex);
+
+		// notify about RC trouble
+                AP_Notify::flags.failsafe_radio = _rcin.rc_failsafe;
+                AP_Notify::flags.radio_lost = _rcin.rc_lost;
 	}
         // note, we rely on the vehicle code checking new_input() 
         // and a timeout for the last valid input to handle failsafe
