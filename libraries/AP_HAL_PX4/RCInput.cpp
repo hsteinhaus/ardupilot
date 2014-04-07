@@ -102,32 +102,45 @@ void PX4RCInput::clear_overrides()
 
 void PX4RCInput::_timer_tick(void)
 {
+	// double-buffer rc values to emulate "hold" semantics for non-throttle channels
+        static struct rc_input_values temp_rcin;
+
 	perf_begin(_perf_rcin);
 
 	// check for status and channel values and update them consistently
 	bool rc_updated = orb_check(_rc_sub, &rc_updated) == 0 && rc_updated;
 	if (rc_updated) {
-		pthread_mutex_lock(&rcin_mutex);
-		orb_copy(ORB_ID(input_rc), _rc_sub, &_rcin);
-
-
-		// pull throttle channel low for easy and intuitive failsafe testing, preserve
-		// all other channel values, e.g. to lower retracts on failsafe
-		if (_rcin.rc_lost) {
-			// we've lost RC input, RC receiver failed or cable break
-			// force channel 3 low
-			_rcin.values[2] = 900;
+		if (orb_copy(ORB_ID(input_rc), _rc_sub, &temp_rcin) == OK) {
+			pthread_mutex_lock(&rcin_mutex);
+			if (temp_rcin.rc_lost) {
+				// we've lost RC input, RC receiver failed or cable break
+				// force channel 3 low
+				_rcin.values[2] = 910;
+				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
+				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
+				_rcin.rc_lost = temp_rcin.rc_lost;
+				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
+			}
+			else if (temp_rcin.rc_failsafe) {
+				// we got a valid RC signal, but it contains a failsafe flag (e.g. TX switched off or out of range)
+				// force channel 3 low
+				// slightly different value allows to map failsafe action only to rc_lost state
+				_rcin.values[2] = 920;
+				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
+				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
+				_rcin.rc_lost = temp_rcin.rc_lost;
+				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
+			}
+			else {
+				memcpy(&_rcin, &temp_rcin, sizeof(_rcin));
+			}
+			pthread_mutex_unlock(&rcin_mutex);
 		}
-		else if (_rcin.rc_failsafe) {
-			// we got a valid RC signal, but it contains a failsafe flag (e.g. TX switched off or out of range)
-			// force channel 3 low
-			// slightly different value allows to map failsafe action only to rc_lost state
-			_rcin.values[2] = 910;
+		else {
+			// note, we rely on the vehicle code checking new_input()
+			// and a timeout for the last valid input to handle failsafe
 		}
-		pthread_mutex_unlock(&rcin_mutex);
 	}
-        // note, we rely on the vehicle code checking new_input() 
-        // and a timeout for the last valid input to handle failsafe
 	perf_end(_perf_rcin);
 }
 
