@@ -7,6 +7,11 @@
 
 using namespace PX4;
 
+#define THR_FAILSAFE 1
+#define THR_RC_FAILSAFE 920
+#define THR_RC_LOST 910
+#define THR_CHANNEL 2
+
 extern const AP_HAL::HAL& hal;
 
 void PX4RCInput::init(void* unused)
@@ -23,7 +28,11 @@ void PX4RCInput::init(void* unused)
 bool PX4RCInput::new_input() 
 {
     pthread_mutex_lock(&rcin_mutex);
+#if THR_FAILSAFE
     bool valid = _rcin.timestamp_last_signal != _last_read || _rcin.timestamp_publication != _last_read || _override_valid;
+#else
+    bool valid = _rcin.timestamp_last_signal != _last_read || _override_valid;
+#endif
     pthread_mutex_unlock(&rcin_mutex);
     return valid;
 }
@@ -112,27 +121,27 @@ void PX4RCInput::_timer_tick(void)
 	if (rc_updated) {
 		if (orb_copy(ORB_ID(input_rc), _rc_sub, &temp_rcin) == OK) {
 			pthread_mutex_lock(&rcin_mutex);
-			if (temp_rcin.rc_lost) {
-				// we've lost RC input, RC receiver failed or cable break
-				// force channel 3 low
-				_rcin.values[2] = 910;
-				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
-				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
-				_rcin.rc_lost = temp_rcin.rc_lost;
-				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
-			}
-			else if (temp_rcin.rc_failsafe) {
-				// we got a valid RC signal, but it contains a failsafe flag (e.g. TX switched off or out of range)
-				// force channel 3 low
-				// slightly different value allows to map failsafe action only to rc_lost state
-				_rcin.values[2] = 920;
-				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
-				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
-				_rcin.rc_lost = temp_rcin.rc_lost;
-				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
+			if (!temp_rcin.rc_lost) {
+				// rc ok or failsafe, copy full rcin structure
+				memcpy(&_rcin, &temp_rcin, sizeof(_rcin));
+#if THR_FAILSAFE
+				if (temp_rcin.rc_failsafe) {
+					// valid RC signal, but contains a failsafe flag (e.g. TX switched off or out of range)
+					// slightly different value allows to map failsafe action only to rc_lost state
+					_rcin.values[THR_CHANNEL] = THR_RC_FAILSAFE;
+				}
+#endif
 			}
 			else {
-				memcpy(&_rcin, &temp_rcin, sizeof(_rcin));
+#if THR_FAILSAFE
+				// we've lost RC input, RC receiver failed or wire broken
+				// copy only metadata and flags, but preserve latest known good channel values
+				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
+				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
+				_rcin.rc_lost = temp_rcin.rc_lost;
+				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
+				_rcin.values[THR_CHANNEL] = THR_RC_LOST;
+#endif
 			}
 			pthread_mutex_unlock(&rcin_mutex);
 		}
