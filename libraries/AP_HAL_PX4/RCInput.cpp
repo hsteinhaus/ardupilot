@@ -8,6 +8,11 @@
 
 using namespace PX4;
 
+#define THR_FAILSAFE 1
+#define THR_RC_FAILSAFE 920
+#define THR_RC_LOST 910
+#define THR_CHANNEL 2
+
 extern const AP_HAL::HAL& hal;
 
 void PX4RCInput::init(void* unused)
@@ -24,7 +29,11 @@ void PX4RCInput::init(void* unused)
 bool PX4RCInput::new_input() 
 {
     pthread_mutex_lock(&rcin_mutex);
+#if THR_FAILSAFE
     bool valid = _rcin.timestamp_last_signal != _last_read || _rcin.timestamp_publication != _last_read || _override_valid;
+#else
+    bool valid = _rcin.timestamp_last_signal != _last_read || _override_valid;
+#endif
     pthread_mutex_unlock(&rcin_mutex);
     return valid;
 }
@@ -103,36 +112,50 @@ void PX4RCInput::clear_overrides()
 
 void PX4RCInput::_timer_tick(void)
 {
+	// double-buffer rc values to emulate "hold" semantics for non-throttle channels
+        static struct rc_input_values temp_rcin;
+
 	perf_begin(_perf_rcin);
 
 	// check for status and channel values and update them consistently
 	bool rc_updated = orb_check(_rc_sub, &rc_updated) == 0 && rc_updated;
 	if (rc_updated) {
-		pthread_mutex_lock(&rcin_mutex);
-		orb_copy(ORB_ID(input_rc), _rc_sub, &_rcin);
+		if (orb_copy(ORB_ID(input_rc), _rc_sub, &temp_rcin) == OK) {
+			pthread_mutex_lock(&rcin_mutex);
+			if (!temp_rcin.rc_lost) {
+				// rc ok or failsafe, copy full rcin structure
+				memcpy(&_rcin, &temp_rcin, sizeof(_rcin));
+#if THR_FAILSAFE
+				if (temp_rcin.rc_failsafe) {
+					// valid RC signal, but contains a failsafe flag (e.g. TX switched off or out of range)
+					// slightly different value allows to map failsafe action only to rc_lost state
+					_rcin.values[THR_CHANNEL] = THR_RC_FAILSAFE;
+				}
+#endif
+			}
+			else {
+#if THR_FAILSAFE
+				// we've lost RC input, RC receiver failed or wire broken
+				// copy only metadata and flags, but preserve latest known good channel values
+				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
+				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
+				_rcin.rc_lost = temp_rcin.rc_lost;
+				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
+				_rcin.values[THR_CHANNEL] = THR_RC_LOST;
+#endif
+			}
+			pthread_mutex_unlock(&rcin_mutex);
 
-
-		// pull throttle channel low for easy and intuitive failsafe testing, preserve
-		// all other channel values, e.g. to lower retracts on failsafe
-		if (_rcin.rc_lost) {
-			// we've lost RC input, RC receiver failed or cable break
-			// force channel 3 low
-			_rcin.values[2] = 900;
+			// notify about RC trouble
+			AP_Notify::flags.failsafe_radio = temp_rcin.rc_failsafe;
+			AP_Notify::flags.radio_lost = temp_rcin.rc_lost;
 		}
-		else if (_rcin.rc_failsafe) {
-			// we got a valid RC signal, but it contains a failsafe flag (e.g. TX switched off or out of range)
-			// force channel 3 low
-			// slightly different value allows to map failsafe action only to rc_lost state
-			_rcin.values[2] = 910;
+		else {
+			// note, we rely on the vehicle code checking new_input()
+			// and a timeout for the last valid input to handle failsafe
+			AP_Notify::flags.radio_lost = true;
 		}
-		pthread_mutex_unlock(&rcin_mutex);
-
-		// notify about RC trouble
-                AP_Notify::flags.failsafe_radio = _rcin.rc_failsafe;
-                AP_Notify::flags.radio_lost = _rcin.rc_lost;
 	}
-        // note, we rely on the vehicle code checking new_input() 
-        // and a timeout for the last valid input to handle failsafe
 	perf_end(_perf_rcin);
 }
 
