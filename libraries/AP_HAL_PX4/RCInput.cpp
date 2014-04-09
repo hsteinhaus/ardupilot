@@ -16,6 +16,8 @@ extern const AP_HAL::HAL& hal;
 
 void PX4RCInput::init(void* unused)
 {
+        memset(&_rcin, 0, sizeof(_rcin));
+        memset(&_new_rcin, 0, sizeof(_rcin));
 	_perf_rcin = perf_alloc(PC_ELAPSED, "APM_rcin");
 	_rc_sub = orb_subscribe(ORB_ID(input_rc));
 	if (_rc_sub == -1) {
@@ -111,35 +113,31 @@ void PX4RCInput::clear_overrides()
 
 void PX4RCInput::_timer_tick(void)
 {
-	// double-buffer rc values to emulate "hold" semantics for non-throttle channels
-        static struct rc_input_values temp_rcin;
-
 	perf_begin(_perf_rcin);
 
 	// check for status and channel values and update them consistently
 	bool rc_updated = orb_check(_rc_sub, &rc_updated) == 0 && rc_updated;
 	if (rc_updated) {
-		if (orb_copy(ORB_ID(input_rc), _rc_sub, &temp_rcin) == OK) {
+		// double-buffer rc input to avoid overwriting last valid channel values with zeros from PX4IO
+		if (orb_copy(ORB_ID(input_rc), _rc_sub, &_new_rcin) == OK) {
 			pthread_mutex_lock(&rcin_mutex);
-			if (!temp_rcin.rc_lost) {
+			if (!_new_rcin.rc_lost) {
 				// rc ok or failsafe, copy full rcin structure
-				memcpy(&_rcin, &temp_rcin, sizeof(_rcin));
+				memcpy(&_rcin, &_new_rcin, sizeof(_rcin));
 #if THR_FAILSAFE
-				if (temp_rcin.rc_failsafe) {
+				if (_new_rcin.rc_failsafe) {
 					// valid RC signal, but contains a failsafe flag (e.g. TX switched off or out of range)
-					// slightly different value allows to map failsafe action only to rc_lost state
 					_rcin.values[THR_CHANNEL] = THR_RC_FAILSAFE;
 				}
 #endif
 			}
 			else {
 #if THR_FAILSAFE
-				// we've lost RC input, RC receiver failed or wire broken
-				// copy only metadata and flags, but preserve latest known good channel values
-				_rcin.timestamp_last_signal = temp_rcin.timestamp_publication;
-				_rcin.timestamp_publication = temp_rcin.timestamp_publication;
-				_rcin.rc_lost = temp_rcin.rc_lost;
-				_rcin.rc_failsafe = temp_rcin.rc_failsafe;
+				// PX4IO or RC receiver failure, copy only timestamps and flags (values[] are zero now) 
+				_rcin.timestamp_last_signal = _new_rcin.timestamp_publication;
+				_rcin.timestamp_publication = _new_rcin.timestamp_publication;
+				_rcin.rc_lost = _new_rcin.rc_lost;
+				_rcin.rc_failsafe = _new_rcin.rc_failsafe;
 				_rcin.values[THR_CHANNEL] = THR_RC_LOST;
 #endif
 			}
@@ -147,7 +145,7 @@ void PX4RCInput::_timer_tick(void)
 		}
 		else {
 			// note, we rely on the vehicle code checking new_input()
-			// and a timeout for the last valid input to handle failsafe
+			// and a timeout for the last valid input to handle rcin timeout
 		}
 	}
 	perf_end(_perf_rcin);
