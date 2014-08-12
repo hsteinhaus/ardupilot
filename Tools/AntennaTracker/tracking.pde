@@ -15,7 +15,7 @@ static struct {
    update the pitch (elevation) servo. The aim is to drive the boards ahrs pitch to the
    requested pitch, so the board (and therefore the antenna) will be pointing at the target
  */
-static void update_pitch_servo(float pitch)
+static void update_pitch_position_servo(float pitch)
 {
     // degrees(ahrs.pitch) is -90 to 90, where 0 is horizontal
     // pitch argument is -90 to 90, where 0 is horizontal
@@ -52,17 +52,63 @@ static void update_pitch_servo(float pitch)
                                         channel_pitch.servo_out + max_change);
     }
     channel_pitch.servo_out = new_servo_out;
+}
 
+
+/**
+   update the pitch (elevation) servo. The aim is to drive the boards ahrs pitch to the
+   requested pitch, so the board (and therefore the antenna) will be pointing at the target
+ */
+static void update_pitch_onoff_servo(float pitch)
+{
+    // degrees(ahrs.pitch) is -90 to 90, where 0 is horizontal
+    // pitch argument is -90 to 90, where 0 is horizontal
+    // servo_out is in 100ths of a degree
+    float ahrs_pitch = degrees(ahrs.pitch);
+    float err = ahrs_pitch - pitch; 
+
+    float acceptable_error = g.onoff_pitch_rate * g.onoff_pitch_mintime;
+    if (fabsf(err) < acceptable_error) {
+        channel_pitch.servo_out = 0;
+    } else if (err > 0) {
+        // positive error means we are pointing too high, so push the
+        // servo down
+        channel_pitch.servo_out = -9000;        
+    } else {
+        // negative error means we are pointing too low, so push the
+        // servo up
+        channel_pitch.servo_out = 9000;
+    }
+}
+
+
+/**
+   update the pitch (elevation) servo. The aim is to drive the boards ahrs pitch to the
+   requested pitch, so the board (and therefore the antenna) will be pointing at the target
+ */
+static void update_pitch_servo(float pitch)
+{
+    switch ((enum ServoType)g.servo_type.get()) {
+    case SERVO_TYPE_ONOFF:
+        update_pitch_onoff_servo(pitch);
+        break;
+
+    case SERVO_TYPE_POSITION:
+    default:
+        update_pitch_position_servo(pitch);
+        break;
+    }
     channel_pitch.calc_pwm();
     channel_pitch.output();
 }
+
 
 /**
    update the yaw (azimuth) servo. The aim is to drive the boards ahrs
    yaw to the requested yaw, so the board (and therefore the antenna)
    will be pointing at the target
  */
-static void update_yaw_servo(float yaw)
+static void update_yaw_position_servo(float yaw)
 {
     int32_t ahrs_yaw_cd = wrap_180_cd(ahrs.yaw_sensor);
     int32_t yaw_cd   = wrap_180_cd(yaw*100);
@@ -176,7 +222,50 @@ static void update_yaw_servo(float yaw)
     }
 
     channel_yaw.servo_out = new_servo_out;
+}
 
+
+/**
+   update the yaw (azimuth) servo. The aim is to drive the boards ahrs
+   yaw to the requested yaw, so the board (and therefore the antenna)
+   will be pointing at the target
+ */
+static void update_yaw_onoff_servo(float yaw)
+{
+    int32_t ahrs_yaw_cd = wrap_180_cd(ahrs.yaw_sensor);
+    int32_t yaw_cd   = wrap_180_cd(yaw*100);
+    int32_t err_cd = wrap_180_cd(ahrs_yaw_cd - yaw_cd);
+    float err = err_cd * 0.01f;
+    
+    float acceptable_error = g.onoff_yaw_rate * g.onoff_yaw_mintime;
+    if (fabsf(err) < acceptable_error) {
+        channel_yaw.servo_out = 0;
+    } else if (err > 0) {
+        // positive error means we are clockwise of the target, so
+        // move anti-clockwise
+        channel_yaw.servo_out = -18000;        
+    } else {
+        // negative error means we are anti-clockwise of the target, so
+        // move clockwise
+        channel_yaw.servo_out = 18000;        
+    }
+}
+
+/**
+   update the yaw (azimuth) servo. 
+ */
+static void update_yaw_servo(float yaw)
+{
+    switch ((enum ServoType)g.servo_type.get()) {
+    case SERVO_TYPE_ONOFF:
+        update_yaw_onoff_servo(yaw);
+        break;
+
+    case SERVO_TYPE_POSITION:
+    default:
+        update_yaw_position_servo(yaw);
+        break;
+    }
     channel_yaw.calc_pwm();
     channel_yaw.output();
 }
@@ -191,8 +280,10 @@ static void update_auto(void)
         hal.scheduler->millis() - start_time_ms < g.startup_delay*1000) {
         return;
     }
-    update_pitch_servo(nav_status.pitch);
-    update_yaw_servo(nav_status.bearing);
+    float yaw = wrap_180_cd((nav_status.bearing+g.yaw_trim)*100) * 0.01f;
+    float pitch = constrain_float(nav_status.pitch+g.pitch_trim, -90, 90);
+    update_pitch_servo(pitch);
+    update_yaw_servo(yaw);
 }
 
 
@@ -205,6 +296,38 @@ static void update_manual(void)
     channel_pitch.radio_out = channel_pitch.radio_in;
     channel_yaw.output();
     channel_pitch.output();
+}
+
+/*
+  control servos for SCAN mode
+ */
+static void update_scan(void)
+{    
+    if (!nav_status.manual_control_yaw) {
+        float yaw_delta = g.scan_speed * 0.02f;
+        nav_status.bearing   += yaw_delta   * (nav_status.scan_reverse_yaw?-1:1);
+        if (nav_status.bearing < 0 && nav_status.scan_reverse_yaw) {
+            nav_status.scan_reverse_yaw = false;
+        }
+        if (nav_status.bearing > 360 && !nav_status.scan_reverse_yaw) {
+            nav_status.scan_reverse_yaw = true;
+        }
+        nav_status.bearing = constrain_float(nav_status.bearing, 0, 360);
+    }
+
+    if (!nav_status.manual_control_pitch) {
+        float pitch_delta = g.scan_speed * 0.02f;
+        nav_status.pitch += pitch_delta * (nav_status.scan_reverse_pitch?-1:1);
+        if (nav_status.pitch < -90 && nav_status.scan_reverse_pitch) {
+            nav_status.scan_reverse_pitch = false;
+        }
+        if (nav_status.pitch > 90 && !nav_status.scan_reverse_pitch) {
+            nav_status.scan_reverse_pitch = true;
+        }
+        nav_status.pitch = constrain_float(nav_status.pitch, -90, 90);
+    }
+
+    update_auto();
 }
 
 
@@ -230,8 +353,12 @@ static void update_tracking(void)
     float pitch    = degrees(atan2f(nav_status.altitude_difference, distance));
 
     // update nav_status for NAV_CONTROLLER_OUTPUT
-    nav_status.bearing  = bearing;
-    nav_status.pitch    = pitch;
+    if (control_mode != SCAN && !nav_status.manual_control_yaw) {
+        nav_status.bearing = bearing;
+    }
+    if (control_mode != SCAN && !nav_status.manual_control_pitch) {
+        nav_status.pitch = pitch;
+    }
     nav_status.distance = distance;
 
     switch (control_mode) {
@@ -241,6 +368,10 @@ static void update_tracking(void)
 
     case MANUAL:
         update_manual();
+        break;
+
+    case SCAN:
+        update_scan();
         break;
 
     case STOP:
@@ -271,13 +402,19 @@ static void tracking_update_pressure(const mavlink_scaled_pressure_t &msg)
 {
     float local_pressure = barometer.get_pressure();
     float aircraft_pressure = msg.press_abs*100.0f;
-    float ground_temp = barometer.get_temperature();
-    float scaling = local_pressure / aircraft_pressure;
 
     // calculate altitude difference based on difference in barometric pressure
-    float alt_diff = logf(scaling) * (ground_temp+273.15f) * 29271.267 * 0.001f;
+    float alt_diff = barometer.get_altitude_difference(local_pressure, aircraft_pressure);
     if (!isnan(alt_diff)) {
-        nav_status.altitude_difference = alt_diff;
+        nav_status.altitude_difference = alt_diff + nav_status.altitude_offset;
+    }
+
+    if (nav_status.need_altitude_calibration) {
+        // we have done a baro calibration - zero the altitude
+        // difference to the aircraft
+        nav_status.altitude_offset = -nav_status.altitude_difference;
+        nav_status.altitude_difference = 0;
+        nav_status.need_altitude_calibration = false;
     }
 }
 
@@ -289,5 +426,7 @@ static void tracking_manual_control(const mavlink_manual_control_t &msg)
     nav_status.bearing = msg.x;
     nav_status.pitch   = msg.y;
     nav_status.distance = 0.0;
+    nav_status.manual_control_yaw   = (msg.x != 0x7FFF);
+    nav_status.manual_control_pitch = (msg.y != 0x7FFF);
     // z, r and buttons are not used
 }

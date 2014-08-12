@@ -69,6 +69,9 @@ public:
 	// return current target airspeed
 	float get_target_airspeed(void) const { return _TAS_dem / _ahrs.get_EAS2TAS(); }
 
+	// return maximum climb rate
+	float get_max_climbrate(void) const { return _maxClimbRate; }
+
 	// this supports the TECS_* user settable parameters
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -117,8 +120,11 @@ private:
     AP_Float _vertAccLim;
 	AP_Float _rollComp;
 	AP_Float _spdWeight;
+	AP_Float _spdWeightLand;
     AP_Float _landThrottle;
     AP_Float _landAirspeed;
+	AP_Int8  _pitch_max;
+	AP_Int8  _pitch_min;
 	
 	// throttle demand in the range from 0.0 to 1.0
     float _throttle_dem;

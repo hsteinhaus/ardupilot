@@ -75,6 +75,14 @@ const AP_Param::Info var_info[] PROGMEM = {
     // @Range: 0 20
     GSCALAR(pitch_slew_time,        "PITCH_SLEW_TIME",  2),
 
+    // @Param: SCAN_SPEED
+    // @DisplayName: Speed at which to rotate in scan mode
+    // @Description: This controls how rapidly the tracker will move the servos in SCAN mode
+    // @Units: degrees/second
+    // @Increment: 1
+    // @Range: 0 100
+    GSCALAR(scan_speed,             "SCAN_SPEED",      5),
+
     // @Param: MIN_REVERSE_TIME
     // @DisplayName: Minimum time to apply a yaw reversal
     // @Description: When the tracker detects it has reached the limit of servo movement in yaw it will reverse and try moving to the other extreme of yaw. This parameter controls the minimum time it should reverse for. It is used to cope with trackers that have a significant lag in movement to ensure they do move all the way around.
@@ -106,6 +114,68 @@ const AP_Param::Info var_info[] PROGMEM = {
     // @Increment: 0.1
     // @Range: 0 10
     GSCALAR(startup_delay,          "STARTUP_DELAY",   0),
+
+    // @Param: PROXY_MODE
+    // @DisplayName: Also act as a MAVLink proxy for a vehicle
+    // @Description: If true, the tracker will act as a MAVlink proxy for a remote vehicle, and will eavesdrop vehicle position reports. 
+    // @Units: boolean
+    // @Increment: 1
+    // @Range: 0 1
+    GSCALAR(proxy_mode,          "PROXY_MODE",   0),
+
+    // @Param: SERVO_TYPE
+    // @DisplayName: Type of servo system being used
+    // @Description: This allows selection of position servos or on/off servos
+    // @Values: Position:0,OnOff:1
+    GSCALAR(servo_type,          "SERVO_TYPE",   SERVO_TYPE_POSITION),
+
+    // @Param: ONOFF_YAW_RATE
+    // @DisplayName: Yaw rate for on/off servos
+    // @Description: Rate of change of yaw in degrees/second for on/off servos
+    // @Units: degrees/second
+    // @Increment: 0.1
+    // @Range: 0 50
+    GSCALAR(onoff_yaw_rate,      "ONOFF_YAW_RATE", 9.0f),
+
+    // @Param: ONOFF_PITCH_RATE
+    // @DisplayName: Pitch rate for on/off servos
+    // @Description: Rate of change of pitch in degrees/second for on/off servos
+    // @Units: degrees/second
+    // @Increment: 0.1
+    // @Range: 0 50
+    GSCALAR(onoff_pitch_rate,      "ONOFF_PITCH_RATE", 1.0f),
+
+    // @Param: ONOFF_YAW_MINT
+    // @DisplayName: Yaw minimum movement time
+    // @Description: Minimum amount of time in seconds to move in yaw
+    // @Units: seconds
+    // @Increment: 0.01
+    // @Range: 0 2
+    GSCALAR(onoff_yaw_mintime,     "ONOFF_YAW_MINT", 0.1f),
+
+    // @Param: ONOFF_PITCH_MINT
+    // @DisplayName: Pitch minimum movement time
+    // @Description: Minimim amount of time in seconds to move in pitch
+    // @Units: seconds
+    // @Increment: 0.01
+    // @Range: 0 2
+    GSCALAR(onoff_pitch_mintime,   "ONOFF_PITCH_MINT", 0.1f),
+
+    // @Param: YAW_TRIM
+    // @DisplayName: Yaw trim
+    // @Description: Amount of extra yaw to add when tracking. This allows for small adjustments for an out of trim compass.
+    // @Units: degrees
+    // @Increment: 0.1
+    // @Range: -10 10
+    GSCALAR(yaw_trim,              "YAW_TRIM", 0),
+
+    // @Param: PITCH_TRIM
+    // @DisplayName: Pitch trim
+    // @Description: Amount of extra pitch to add when tracking. This allows for small adjustments for a badly calibrated barometer.
+    // @Units: degrees
+    // @Increment: 0.1
+    // @Range: -10 10
+    GSCALAR(pitch_trim,              "PITCH_TRIM", 0),
 
     // barometer ground calibration. The GND_ prefix is chosen for
     // compatibility with previous releases of ArduPlane

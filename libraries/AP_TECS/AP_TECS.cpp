@@ -125,6 +125,30 @@ const AP_Param::GroupInfo AP_TECS::var_info[] PROGMEM = {
     // @User: User
     AP_GROUPINFO("LAND_THR", 13, AP_TECS, _landThrottle, -1),
 
+    // @Param: LAND_SPDWGT
+    // @DisplayName: Weighting applied to speed control during landing.
+    // @Description: Same as SPDWEIGHT parameter, with the exception that this parameter is applied during landing flight stages.  A value closer to 2 will result in the plane ignoring height error during landing and our experience has been that the plane will therefore keep the nose up -- sometimes good for a glider landing (with the side effect that you will likely glide a ways past the landing point).  A value closer to 0 results in the plane ignoring speed error -- use caution when lowering the value below 1 -- ignoring speed could result in a stall.
+	// @Range: 0.0 to 2.0
+	// @Increment: 0.1
+	// @User: Advanced
+    AP_GROUPINFO("LAND_SPDWGT", 14, AP_TECS, _spdWeightLand, 1.0f),
+
+    // @Param: PITCH_MAX
+    // @DisplayName: Maximum pitch in auto flight
+    // @Description: This controls maximum pitch up in automatic throttle modes. If this is set to zero then LIM_PITCH_MAX is used instead. The purpose of this parameter is to allow the use of a smaller pitch range when in automatic flight than what is used in FBWA mode.
+	// @Range: 0 45
+	// @Increment: 1
+	// @User: Advanced
+    AP_GROUPINFO("PITCH_MAX", 15, AP_TECS, _pitch_max, 0),
+
+    // @Param: PITCH_MIN
+    // @DisplayName: Minimum pitch in auto flight
+    // @Description: This controls minimum pitch in automatic throttle modes. If this is set to zero then LIM_PITCH_MIN is used instead. The purpose of this parameter is to allow the use of a smaller pitch range when in automatic flight than what is used in FBWA mode. Note that TECS_PITCH_MIN should be a negative number.
+	// @Range: -45 0
+	// @Increment: 1
+	// @User: Advanced
+    AP_GROUPINFO("PITCH_MIN", 16, AP_TECS, _pitch_min, 0),
+
     AP_GROUPEND
 };
 
@@ -235,7 +259,7 @@ void AP_TECS::_update_speed(void)
     // airspeed is not being used and set speed rate to zero
     if (!_ahrs.airspeed_sensor_enabled() || !_ahrs.airspeed_estimate(&_EAS)) {
         // If no airspeed available use average of min and max
-        _EAS = 0.5f * (aparm.airspeed_min + aparm.airspeed_max);
+        _EAS = 0.5f * (aparm.airspeed_min.get() + (float)aparm.airspeed_max.get());
     }
 
     // Implement a second order complementary filter to obtain a
@@ -520,17 +544,17 @@ void AP_TECS::_update_pitch(void)
     // This is used to determine how the pitch control prioritises speed and height control
     // A weighting of 1 provides equal priority (this is the normal mode of operation)
     // A SKE_weighting of 0 provides 100% priority to height control. This is used when no airspeed measurement is available
-	// A SKE_weighting of 2 provides 100% priority to speed control. This is used when an underspeed condition is detected
-	// or during takeoff/climbout where a minimum pitch angle is set to ensure height is gained. In this instance, if airspeed
+	// A SKE_weighting of 2 provides 100% priority to speed control. This is used when an underspeed condition is detected. In this instance, if airspeed
 	// rises above the demanded value, the pitch angle will be increased by the TECS controller.
-    // OR during landing approach to keep the nose up (pitch to maintain landing speed, DON'T pitch down to try to reach a desired height
 	float SKE_weighting = constrain_float(_spdWeight, 0.0f, 2.0f);
-	if ( ( _underspeed || (_flight_stage == AP_TECS::FLIGHT_TAKEOFF) || _flight_stage == AP_TECS::FLIGHT_LAND_APPROACH || _flight_stage == AP_TECS::FLIGHT_LAND_FINAL ) && 
-		 _ahrs.airspeed_sensor_enabled() ) {
-		SKE_weighting = 2.0f;
-	} else if (!_ahrs.airspeed_sensor_enabled()) {
+    if (!_ahrs.airspeed_sensor_enabled()) {
 		SKE_weighting = 0.0f;
-	}
+    } else if ( _underspeed || _flight_stage == AP_TECS::FLIGHT_TAKEOFF) {
+		SKE_weighting = 2.0f;
+    } else if (_flight_stage == AP_TECS::FLIGHT_LAND_APPROACH || _flight_stage == AP_TECS::FLIGHT_LAND_FINAL) {
+        SKE_weighting = constrain_float(_spdWeightLand, 0.0f, 2.0f);
+    }
+    
 	float SPE_weighting = 2.0f - SKE_weighting;
 
     // Calculate Specific Energy Balance demand, and error
@@ -648,8 +672,24 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
 	_EAS_dem = EAS_dem_cm * 0.01f;
     _THRmaxf  = aparm.throttle_max * 0.01f;
     _THRminf  = aparm.throttle_min * 0.01f;
-	_PITCHmaxf = 0.000174533f * aparm.pitch_limit_max_cd;
-	_PITCHminf = 0.000174533f * aparm.pitch_limit_min_cd;
+
+	// work out the maximum and minimum pitch
+	// if TECS_PITCH_{MAX,MIN} isn't set then use
+	// LIM_PITCH_{MAX,MIN}. Don't allow TECS_PITCH_{MAX,MIN} to be
+	// larger than LIM_PITCH_{MAX,MIN}
+	if (_pitch_max <= 0) {
+		_PITCHmaxf = aparm.pitch_limit_max_cd * 0.01f;
+	} else {
+		_PITCHmaxf = min(_pitch_max, aparm.pitch_limit_max_cd * 0.01f);
+	}
+	if (_pitch_min >= 0) {
+		_PITCHminf = aparm.pitch_limit_min_cd * 0.01f;
+	} else {
+		_PITCHminf = max(_pitch_min, aparm.pitch_limit_min_cd * 0.01f);
+	}
+	// convert to radians
+	_PITCHmaxf = radians(_PITCHmaxf);
+	_PITCHminf = radians(_PITCHminf);
 	_flight_stage = flight_stage;
 
 	// initialise selected states and variables if DT > 1 second or in climbout

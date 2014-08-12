@@ -274,6 +274,7 @@ uint16_t DataFlash_Block::find_last_page_of_log(uint16_t log_number)
 
 #define PGM_UINT8(addr) pgm_read_byte((const prog_char *)addr)
 
+#ifndef DATAFLASH_NO_CLI
 /*
   read and print a log entry using the format strings from the given structure
  */
@@ -556,6 +557,7 @@ void DataFlash_Block::ListAvailableLogs(AP_HAL::BetterStream *port)
     }
     port->println();
 }
+#endif // DATAFLASH_NO_CLI
 
 // This function starts a new log file in the DataFlash, and writes
 // the format of supported messages in the log, plus all parameters
@@ -662,42 +664,44 @@ void DataFlash_Class::Log_Write_Parameters(void)
 
 
 // Write an GPS packet
-void DataFlash_Class::Log_Write_GPS(const AP_GPS &gps, int32_t relative_alt)
+void DataFlash_Class::Log_Write_GPS(const AP_GPS &gps, uint8_t i, int32_t relative_alt)
 {
-    const struct Location &loc = gps.location(0);
-    struct log_GPS pkt = {
-        LOG_PACKET_HEADER_INIT(LOG_GPS_MSG),
-    	status        : (uint8_t)gps.status(0),
-    	gps_week_ms   : gps.time_week_ms(0),
-    	gps_week      : gps.time_week(0),
-        num_sats      : gps.num_sats(0),
-        hdop          : gps.get_hdop(0),
-        latitude      : loc.lat,
-        longitude     : loc.lng,
-        rel_altitude  : relative_alt,
-        altitude      : loc.alt,
-        ground_speed  : (uint32_t)(gps.ground_speed(0) * 100),
-        ground_course : gps.ground_course_cd(0),
-        vel_z         : gps.velocity(0).z,
-        apm_time      : hal.scheduler->millis()
-    };
-    WriteBlock(&pkt, sizeof(pkt));
+    if (i == 0) {
+        const struct Location &loc = gps.location(i);
+        struct log_GPS pkt = {
+            LOG_PACKET_HEADER_INIT(LOG_GPS_MSG),
+            status        : (uint8_t)gps.status(i),
+            gps_week_ms   : gps.time_week_ms(i),
+            gps_week      : gps.time_week(i),
+            num_sats      : gps.num_sats(i),
+            hdop          : gps.get_hdop(i),
+            latitude      : loc.lat,
+            longitude     : loc.lng,
+            rel_altitude  : relative_alt,
+            altitude      : loc.alt,
+            ground_speed  : (uint32_t)(gps.ground_speed(i) * 100),
+            ground_course : gps.ground_course_cd(i),
+            vel_z         : gps.velocity(i).z,
+            apm_time      : hal.scheduler->millis()
+        };
+        WriteBlock(&pkt, sizeof(pkt));
+    }
 #if HAL_CPU_CLASS > HAL_CPU_CLASS_16
-    if (gps.num_sensors() > 1) {
-        const struct Location &loc2 = gps.location(1);
+    if (i > 0) {
+        const struct Location &loc2 = gps.location(i);
         struct log_GPS2 pkt2 = {
             LOG_PACKET_HEADER_INIT(LOG_GPS2_MSG),
-            status        : (uint8_t)gps.status(1),
-            gps_week_ms   : gps.time_week_ms(1),
-            gps_week      : gps.time_week(1),
-            num_sats      : gps.num_sats(1),
-            hdop          : gps.get_hdop(1),
+            status        : (uint8_t)gps.status(i),
+            gps_week_ms   : gps.time_week_ms(i),
+            gps_week      : gps.time_week(i),
+            num_sats      : gps.num_sats(i),
+            hdop          : gps.get_hdop(i),
             latitude      : loc2.lat,
             longitude     : loc2.lng,
             altitude      : loc2.alt,
-            ground_speed  : (uint32_t)(gps.ground_speed(1)*100),
-            ground_course : gps.ground_course_cd(1),
-            vel_z         : gps.velocity(1).z,
+            ground_speed  : (uint32_t)(gps.ground_speed(i)*100),
+            ground_course : gps.ground_course_cd(i),
+            vel_z         : gps.velocity(i).z,
             apm_time      : hal.scheduler->millis(),
             dgps_numch    : 0,
             dgps_age      : 0
@@ -783,6 +787,7 @@ void DataFlash_Class::Log_Write_IMU(const AP_InertialSensor &ins)
     if (ins.get_gyro_count() < 2 && ins.get_accel_count() < 2) {
         return;
     }
+#if INS_MAX_INSTANCES > 1
     const Vector3f &gyro2 = ins.get_gyro(1);
     const Vector3f &accel2 = ins.get_accel(1);
     struct log_IMU pkt2 = {
@@ -796,6 +801,23 @@ void DataFlash_Class::Log_Write_IMU(const AP_InertialSensor &ins)
         accel_z : accel2.z
     };
     WriteBlock(&pkt2, sizeof(pkt2));
+    if (ins.get_gyro_count() < 3 && ins.get_accel_count() < 3) {
+        return;
+    }
+    const Vector3f &gyro3 = ins.get_gyro(2);
+    const Vector3f &accel3 = ins.get_accel(2);
+    struct log_IMU pkt3 = {
+        LOG_PACKET_HEADER_INIT(LOG_IMU3_MSG),
+        timestamp : tstamp,
+        gyro_x  : gyro3.x,
+        gyro_y  : gyro3.y,
+        gyro_z  : gyro3.z,
+        accel_x : accel3.x,
+        accel_y : accel3.y,
+        accel_z : accel3.z
+    };
+    WriteBlock(&pkt3, sizeof(pkt3));
+#endif
 }
 
 // Write a text message to the log
@@ -943,7 +965,10 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs)
 	Vector3f magVar;
 	float tasVar;
     Vector2f offset;
+    uint8_t faultStatus;
+    float deltaGyroBias;
     ahrs.get_NavEKF().getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+    ahrs.get_NavEKF().getFilterFaults(faultStatus, deltaGyroBias);
     struct log_EKF4 pkt4 = {
         LOG_PACKET_HEADER_INIT(LOG_EKF4_MSG),
         time_ms : hal.scheduler->millis(),
@@ -955,7 +980,9 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs)
         sqrtvarMZ : (int16_t)(100*magVar.z),
         sqrtvarVT : (int16_t)(100*tasVar),
         offsetNorth : (int8_t)(offset.x),
-        offsetEast : (int8_t)(offset.y)
+        offsetEast : (int8_t)(offset.y),
+        faults : (uint8_t)(faultStatus),
+        divergeRate : (uint8_t)(100*deltaGyroBias)
     };
     WriteBlock(&pkt4, sizeof(pkt4));
 }
@@ -997,3 +1024,29 @@ void DataFlash_Class::Log_Write_Radio(const mavlink_radio_t &packet)
     WriteBlock(&pkt, sizeof(pkt)); 
 }
 
+// Write a Camera packet
+void DataFlash_Class::Log_Write_Camera(const AP_AHRS &ahrs, const AP_GPS &gps, const Location &current_loc)
+{
+    int32_t altitude, altitude_rel;
+    if (current_loc.flags.relative_alt) {
+        altitude = current_loc.alt+ahrs.get_home().alt;
+        altitude_rel = current_loc.alt;
+    } else {
+        altitude = current_loc.alt;
+        altitude_rel = current_loc.alt - ahrs.get_home().alt;
+    }
+
+    struct log_Camera pkt = {
+        LOG_PACKET_HEADER_INIT(LOG_CAMERA_MSG),
+        gps_time    : gps.time_week_ms(),
+        gps_week    : gps.time_week(),
+        latitude    : current_loc.lat,
+        longitude   : current_loc.lng,
+        altitude    : altitude,
+        altitude_rel: altitude_rel,
+        roll        : (int16_t)ahrs.roll_sensor,
+        pitch       : (int16_t)ahrs.pitch_sensor,
+        yaw         : (uint16_t)ahrs.yaw_sensor
+    };
+    WriteBlock(&pkt, sizeof(pkt));
+}
