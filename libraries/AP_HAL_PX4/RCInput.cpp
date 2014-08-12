@@ -112,6 +112,7 @@ void PX4RCInput::clear_overrides()
 	}
 }
 
+
 void PX4RCInput::_timer_tick(void)
 {
 	perf_begin(_perf_rcin);
@@ -156,5 +157,4 @@ void PX4RCInput::_timer_tick(void)
 	}
 	perf_end(_perf_rcin);
 }
-
 #endif
