@@ -8,6 +8,8 @@
 #include <AP_Baro.h>
 #include <AP_AHRS.h>
 
+#include <stdio.h>
+
 extern const AP_HAL::HAL& hal;
 
 
@@ -292,6 +294,7 @@ void DataFlash_Class::_print_log_entry(uint8_t msg_type,
         port->printf_P(PSTR("UNKN, %u\n"), (unsigned)msg_type);
         return;
     }
+
     uint8_t msg_len = PGM_UINT8(&_structures[i].msg_len) - 3;
     uint8_t pkt[msg_len];
     ReadBlock(pkt, msg_len);
@@ -417,6 +420,17 @@ void DataFlash_Class::_print_log_entry(uint8_t msg_type,
         }
     }
     port->println();
+
+    if (msg_type == LOG_RCOUT_MSG) {
+//        printf("replay: ");
+        // hack: replay RCOU data
+        uint16_t* channels = (uint16_t*)(&pkt[4]);
+        for (int i=0; i < 8; i++) {
+//            printf("%d->%d  ", i, channels[i]);
+            hal.rcout->write(i, channels[i]);
+        }
+//        printf("\n");
+    }
 }
 
 

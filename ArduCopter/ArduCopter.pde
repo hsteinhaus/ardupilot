@@ -922,6 +922,7 @@ void setup()
 
     // initialise the main loop scheduler
     scheduler.init(&scheduler_tasks[0], sizeof(scheduler_tasks)/sizeof(scheduler_tasks[0]));
+
 }
 
 /*
@@ -947,7 +948,7 @@ static void perf_update(void)
     if (g.log_bitmask & MASK_LOG_PM)
         Log_Write_Performance();
     if (scheduler.debug()) {
-        cliSerial->printf_P(PSTR("PERF: %u/%u %lu\n"),
+        cliSerial->printf_P(PSTR("PERF: %hu/%hu %lu\n"),
                             (unsigned)perf_info_get_num_long_running(),
                             (unsigned)perf_info_get_num_loops(),
                             (unsigned long)perf_info_get_max_time());
@@ -956,8 +957,22 @@ static void perf_update(void)
     pmTest1 = 0;
 }
 
+void log_cb(AP_HAL::BetterStream *port, uint8_t mode) 
+{
+  
+}
+
 void loop()
 {
+    uint16_t dump_log_start;
+    uint16_t dump_log_end;
+
+    DataFlash.get_log_boundaries(1, dump_log_start, dump_log_end);
+    printf("bounds: %u %u\n", dump_log_start, dump_log_end);
+    DataFlash.LogReadProcess(1, dump_log_start, dump_log_end, log_cb, cliSerial);
+
+/*
+
     // wait for an INS sample
     if (!ins.wait_for_sample(1000)) {
         Log_Write_Error(ERROR_SUBSYSTEM_MAIN, ERROR_CODE_MAIN_INS_DELAY);
@@ -989,6 +1004,7 @@ void loop()
     // call until scheduler.tick() is called again
     uint32_t time_available = (timer + MAIN_LOOP_MICROS) - micros();
     scheduler.run(time_available);
+    */
 }
 
 
