@@ -423,11 +423,16 @@ void DataFlash_Class::_print_log_entry(uint8_t msg_type,
 
     if (msg_type == LOG_RCOUT_MSG) {
 //        printf("replay: ");
-        // hack: replay RCOU data
+        // attention - this replay routine is made to play a very specific old log file, using 32-bit timestamps
         uint16_t* channels = (uint16_t*)(&pkt[4]);
-        for (int i=0; i < 8; i++) {
-//            printf("%d->%d  ", i, channels[i]);
-            hal.rcout->write(i, channels[i]);
+        for (int ch=0; ch < 8; ch++) {
+            uint16_t val = 1000;
+            uint16_t th = hal.rcin->read(2);
+            if (th > 1500) {
+              val = channels[ch];
+            } 
+//            printf("%d->%d   ",ch, val);
+            hal.rcout->write(ch, val);
         }
 //        printf("\n");
     }
