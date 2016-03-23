@@ -1,6 +1,7 @@
 /// -*- tab-width: 4; Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*-
 
 #include <AP_HAL/AP_HAL.h>
+#include <AP_Notify/AP_Notify.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
 #include "RCOutput.h"
@@ -15,6 +16,14 @@
 #include <drivers/drv_hrt.h>
 
 extern const AP_HAL::HAL& hal;
+
+enum {
+    UAVCAN_ESC_ENUM_OFF         = 0,
+    UAVCAN_ESC_ENUM_START       = 1,
+    UAVCAN_ESC_ENUM_STOP        = 2,
+    UAVCAN_ESC_ENUM_WAIT_SAFETY = 3,
+    UAVCAN_ESC_ENUM_PASSTHROUGH = 4,
+};
 
 using namespace PX4;
 
@@ -316,8 +325,10 @@ void PX4RCOutput::read_last_sent(uint16_t* period_us, uint8_t len)
  */
 void PX4RCOutput::_arm_actuators(bool arm)
 {
-    if (_armed.armed == arm) {
-        // already armed;
+    if (_armed.armed == arm
+        || _esc_enumeration_state == UAVCAN_ESC_ENUM_START
+        || _esc_enumeration_state == UAVCAN_ESC_ENUM_STOP ) {
+        // already armed or in the middle of UAVCAN ESC enumeration
         return;
     }
 
@@ -341,9 +352,10 @@ void PX4RCOutput::_publish_actuators(void)
 {
 	struct actuator_direct_s actuators;
 
-    if (_esc_pwm_min == 0 ||
-        _esc_pwm_max == 0) {
-        // not initialised yet
+    if (_esc_pwm_min == 0 || _esc_pwm_max == 0
+        || _esc_enumeration_state == UAVCAN_ESC_ENUM_START
+        || _esc_enumeration_state == UAVCAN_ESC_ENUM_STOP ) {
+        // not initialised or in the middle of UAVCAN ESC enumeration
         return;
     }
 
@@ -379,9 +391,59 @@ void PX4RCOutput::_publish_actuators(void)
     }
 }
 
+void PX4RCOutput::_enumerate_escs(void)
+{
+    // This state machine handles the UAVCAN ESC enumeration. The workflow has been
+    // designed to be as similar as possible to the conventional PWM ESC calibration 
+    // for user convenience.
+    switch (_esc_enumeration_state) {
+    case UAVCAN_ESC_ENUM_OFF:
+        // second boot with full throttle -> trigger ESC  enumeration
+        _vehicle_cmd.command = vehicle_command_s::VEHICLE_CMD_PREFLIGHT_UAVCAN;
+        _vehicle_cmd.param1 = 1; // start assignment
+        _vehicle_cmd_pub = orb_advertise(ORB_ID(vehicle_command), &_vehicle_cmd);
+        hal.console->printf("UAVCAN: ESC enumeration started\n");
+        _esc_enumeration_state = UAVCAN_ESC_ENUM_START;
+        break;
+    case UAVCAN_ESC_ENUM_START:
+        if (_period[0] > 0 && _period[0] < 1100) {
+            // throttle lowered -> stop enum
+            _esc_enumeration_state = UAVCAN_ESC_ENUM_STOP;
+        }
+        break;
+    case UAVCAN_ESC_ENUM_STOP:
+        // stop enum
+        _vehicle_cmd.param1 = 0; // stop assignment
+        orb_publish(ORB_ID(vehicle_command), _vehicle_cmd_pub, &_vehicle_cmd);
+        hal.console->printf("UAVCAN: ESC enumeration complete\n");
+
+        // proceed to pass-through mode
+        _esc_enumeration_state = UAVCAN_ESC_ENUM_WAIT_SAFETY;
+        break;
+    case UAVCAN_ESC_ENUM_WAIT_SAFETY:
+        if (hal.util->safety_switch_state() != AP_HAL::Util::SAFETY_DISARMED) {
+            // continue to pass-through after safety switch has been armed
+            set_esc_scaling(1000, 2000);
+            hal.util->set_soft_armed(true);
+            _arm_actuators(true);
+            _esc_enumeration_state = UAVCAN_ESC_ENUM_PASSTHROUGH;
+        }
+        break;
+    case UAVCAN_ESC_ENUM_PASSTHROUGH:
+        // pass-through throttle input for testing (no exit except power down)
+        _publish_actuators();
+        break;
+    }
+}
+
 void PX4RCOutput::_send_outputs(void)
 {
     uint32_t now = AP_HAL::micros();
+
+    if  (AP_Notify::flags.esc_calibration && AP_Notify::flags.armed) {
+        // we are in the second stage of ESC calibration now (pass-through), trigger UAVCAN ESC enumeration
+        _enumerate_escs();
+    }
 
     if ((_enabled_channels & ((1U<<_servo_count)-1)) == 0) {
         // no channels enabled

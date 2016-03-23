@@ -4,6 +4,7 @@
 #include <systemlib/perf_counter.h>
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/actuator_armed.h>
+#include <uORB/topics/vehicle_command.h>
 
 #define PX4_NUM_OUTPUT_CHANNELS 16
 
@@ -56,15 +57,19 @@ private:
         actuator_outputs_s outputs;
     } _outputs[ORB_MULTI_MAX_INSTANCES] {};
     actuator_armed_s _armed;
+    vehicle_command_s _vehicle_cmd = {};
 
     orb_advert_t _actuator_direct_pub = NULL;
     orb_advert_t _actuator_armed_pub = NULL;
+    orb_advert_t _vehicle_cmd_pub = NULL;
     uint16_t _esc_pwm_min = 0;
     uint16_t _esc_pwm_max = 0;
     uint16_t _fast_channel_mask;
+    uint8_t _esc_enumeration_state = 0;
 
     void _init_alt_channels(void);
     void _publish_actuators(void);
+    void _enumerate_escs(void);
     void _arm_actuators(bool arm);
     void set_freq_fd(int fd, uint32_t chmask, uint16_t freq_hz);
     bool _corking;
