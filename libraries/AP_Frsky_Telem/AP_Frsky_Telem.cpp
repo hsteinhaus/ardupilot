@@ -27,10 +27,11 @@ extern const AP_HAL::HAL& hal;
 ObjectArray<mavlink_statustext_t> AP_Frsky_Telem::_statustext_queue(FRSKY_TELEM_PAYLOAD_STATUS_CAPACITY);
 
 //constructor
-AP_Frsky_Telem::AP_Frsky_Telem(AP_AHRS &ahrs, const AP_BattMonitor &battery, const RangeFinder &rng) :
+AP_Frsky_Telem::AP_Frsky_Telem(AP_AHRS &ahrs, const AP_BattMonitor &battery, const RangeFinder &rng, const AP_Motors* motors) :
     _ahrs(ahrs),
     _battery(battery),
-    _rng(rng)
+    _rng(rng),
+    _motors(motors)
     {}
 
 /*
@@ -255,8 +256,17 @@ void AP_Frsky_Telem::send_SPort(void)
                         case 1:
                             send_uint32(DATA_ID_TEMP1, _ap.control_mode); // send flight mode
                             break;
+                        case 2:
+                            uint32_t flags = 0;
+                            if (_motors) {
+                                flags |= _motors->limit.motor_lower;
+                                flags |= _motors->limit.motor_upper << 8;
+                            }
+                            send_uint32(SMARTPORT_ID_ADC4, flags | 0x10000); // set dummy MSB to ensure sensor auto-detection
+                            break;
+
                     }
-                    if (_SPort.various_call++ > 1) _SPort.various_call = 0;
+                    if (_SPort.various_call++ > 2) _SPort.various_call = 0;
                     break;
             }
             _SPort.sport_status = false;

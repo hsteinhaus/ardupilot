@@ -16,6 +16,7 @@
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_AHRS/AP_AHRS.h>
+#include <AP_Motors/AP_Motors.h>
 #include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_Notify/AP_Notify.h>
 #include <AP_RangeFinder/AP_RangeFinder.h>
@@ -63,6 +64,9 @@ for FrSky SPort and SPort Passthrough (OpenTX) protocols (X-receivers)
 // FrSky data IDs
 #define GPS_LONG_LATI_FIRST_ID      0x0800
 #define DIY_FIRST_ID                0x5000
+
+#define SMARTPORT_ID_ADC3           0x0900
+#define SMARTPORT_ID_ADC4           0x0910
 
 #define START_STOP_SPORT            0x7E
 #define BYTESTUFF_SPORT             0x7D
@@ -112,7 +116,7 @@ class AP_Frsky_Telem
 {
 public:
     //constructor
-    AP_Frsky_Telem(AP_AHRS &ahrs, const AP_BattMonitor &battery, const RangeFinder &rng);
+    AP_Frsky_Telem(AP_AHRS &ahrs, const AP_BattMonitor &battery, const RangeFinder &rng, const AP_Motors* motors = nullptr);
 
     // init - perform required initialisation
     void init(const AP_SerialManager &serial_manager, const char *firmware_str, const uint8_t mav_type, const AP_Float *fs_batt_voltage = nullptr, const AP_Float *fs_batt_mah = nullptr, const uint32_t *ap_valuep = nullptr);
@@ -140,6 +144,7 @@ private:
     AP_AHRS &_ahrs;
     const AP_BattMonitor &_battery;
     const RangeFinder &_rng;
+    const AP_Motors* _motors;
     AP_HAL::UARTDriver *_port;                  // UART used to send data to FrSky receiver
     AP_SerialManager::SerialProtocol _protocol; // protocol used - detected using SerialManager's SERIAL#_PROTOCOL parameter
     bool _initialised_uart;
