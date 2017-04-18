@@ -1,4 +1,5 @@
 #include <AP_HAL/AP_HAL.h>
+#include <DataFlash/DataFlash.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
 #include "RCOutput.h"
@@ -544,6 +545,7 @@ void PX4RCOutput::push()
     if (_output_mode == MODE_PWM_ONESHOT) {
         // run timer immediately in oneshot mode
         _send_outputs();
+        DataFlash_Class::instance()->Log_Write_RCOUT();
     }
 }
 

@@ -397,7 +397,7 @@ void Copter::ten_hz_logging_loop()
             DataFlash.Log_Write_RSSI(rssi);
         }
     }
-    if (should_log(MASK_LOG_RCOUT)) {
+    if (should_log(MASK_LOG_RCOUT) && motors->get_pwm_type() != AP_Motors::PWM_TYPE_ONESHOT && motors->get_pwm_type() != AP_Motors::PWM_TYPE_ONESHOT125) {
         DataFlash.Log_Write_RCOUT();
     }
     if (should_log(MASK_LOG_NTUN) && (mode_requires_GPS(control_mode) || landing_with_GPS())) {
